@@ -1,7 +1,10 @@
 [package]
 name = "swifer"
+description = "Garbage collection for rust-based runtimes"
 version = "0.1.0"
 edition = "2021"
+keywords = ["gc", "garbage-collector"]
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
