@@ -6,3 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+
+[dev-dependencies]
+dyn_struct2 = "0.1.0"
+dyn_struct_derive2 = "0.1.0"

@@ -1,4 +1,4 @@
-use std::{alloc, mem};
+use std::{alloc, mem, ptr};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
@@ -17,7 +17,6 @@ pub struct Heap<T, Ptr = *const T>
 /// Automatically implemented for sized types.
 pub unsafe trait DynSized{
     fn dyn_align() -> usize;
-    fn dyn_size(&self) -> usize;
 }
 
 /// A pointer to a value in managed memory, usable by heaps.
@@ -45,17 +44,11 @@ unsafe impl<T: Sized> DynSized for T{
     fn dyn_align() -> usize{
         return mem::align_of::<T>();
     }
-    fn dyn_size(&self) -> usize{
-        return mem::size_of::<T>();
-    }
 }
 
 unsafe impl<T: Sized> DynSized for [T]{
     fn dyn_align() -> usize {
         return mem::align_of::<T>();
-    }
-    fn dyn_size(&self) -> usize {
-        return mem::size_of::<T>() * self.len();
     }
 }
 
@@ -80,18 +73,60 @@ impl<T: ?Sized + GcCandidate, Ptr: GcPtr<T>> Heap<T, Ptr>{
 
     // false = OOM
     pub fn push(&mut self, v: Box<T>) -> bool{
-        let size = v.dyn_size();
+        let size = mem::size_of_val(v.as_ref());
+        // check we can allocate
         if self.cap - self.used < size{
             return false;
         }
         unsafe{
+            // get the raw source pointer (with size metadata)
             let raw = Box::into_raw(v);
-            let src_ptr = raw as *const ();
-            let dest_ptr = self.head.as_ptr().offset(self.used as isize);
-            dest_ptr.copy_from(src_ptr, size);
+            // find the destination location
+            let dest_ptr: *mut () = self.head.as_ptr().offset(self.used as isize);
+            // add the metadata of the source pointer (e.g. object size) to get the fat target pointer
+            let dest_ptr: *mut T = dest_ptr.with_metadata_of(raw);
+            // copy the bytes of the source to the target
+            // *const u8 is required as we specify size in bytes
+            (dest_ptr as *mut u8).copy_from(raw as *const u8, size);
+            // deallocate the box's memory
             alloc::dealloc(raw as *mut u8, alloc::Layout::for_value_raw(raw));
+            // keep track of the new entry
+            self.indexes.push(Ptr::from_raw_ptr(dest_ptr));
         }
         self.used += size;
         return true;
+    }
+
+    pub fn get(&self, idx: usize) -> &T{
+        unsafe{
+            return self.indexes[idx].to_raw_ptr().as_ref().expect("Heap::get: GcPtr returned null");
+        }
+    }
+
+    pub fn len(&self) -> usize{
+        return self.indexes.len();
+    }
+
+    pub fn for_each(&self, mut cb: impl FnMut(&T)){
+        for i in 0..self.len(){
+            cb(self.get(i));
+        }
+    }
+}
+
+impl<T: ?Sized + GcCandidate, Ptr: GcPtr<T>> Drop for Heap<T, Ptr>{
+    fn drop(&mut self){
+        // drop each object
+        for i in 0..self.len(){
+            let ptr = &self.indexes[i];
+            let raw = ptr.to_raw_ptr() as *mut T;
+            unsafe{
+                raw.drop_in_place();
+            }
+        }
+        unsafe{
+            // then deallocate the whole thing
+            alloc::dealloc(self.head.as_ptr() as *mut u8, alloc::Layout::array::<()>(self.cap).unwrap());
+        }
     }
 }
