@@ -6,7 +6,7 @@ use std::ptr::NonNull;
 pub struct Heap<T, Ptr = *const T>
     where T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>
 {
-    head: NonNull<()>, // T is ?Sized, so NonNull<T> would need metadata that doesn't exist yet
+    head: NonNull<u8>, // T is ?Sized, so NonNull<T> would need metadata that doesn't exist yet
     cap: usize,
     used: usize,
     indexes: Vec<Ptr>,
@@ -31,7 +31,7 @@ pub trait GcCandidate<Ptr = *const Self>: DynSized
     where Ptr: GcPtr<Self>
 {
     fn collect_managed_pointers(&self) -> Vec<Ptr>;
-    fn adjust_ptrs(&mut self, adjust: impl Fn(Ptr) -> Ptr);
+    fn adjust_ptrs(&mut self, adjust: impl Fn(&Ptr) -> Ptr);
 }
 
 //////////////// impls
@@ -59,7 +59,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
     pub fn new(size: usize) -> Heap<T, Ptr>{
         let layout = alloc::Layout::from_size_align(size, T::dyn_align()).expect("Invalid layout for new Heap");
         let head = unsafe{ alloc::alloc(layout) };
-        let nn_head = match NonNull::new(head as *mut ()){
+        let nn_head = match NonNull::new(head){
             None => alloc::handle_alloc_error(layout),
             Some(p) => p
         };
@@ -84,7 +84,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
             // get the raw source pointer (with size metadata)
             let raw = Box::into_raw(v);
             // find the destination location
-            let dest_ptr: *mut () = self.head.as_ptr().offset(self.used as isize);
+            let dest_ptr: *mut u8 = self.head.as_ptr().offset(self.used as isize);
             // add the metadata of the source pointer (e.g. object size) to get the fat target pointer
             let dest_ptr: *mut T = dest_ptr.with_metadata_of(raw);
             // copy the bytes of the source to the target
@@ -176,7 +176,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Drop for Heap<T, Ptr>{
         self.reset();
         unsafe{
             // then deallocate the whole thing
-            alloc::dealloc(self.head.as_ptr() as *mut u8, alloc::Layout::array::<()>(self.cap).unwrap());
+            alloc::dealloc(self.head.as_ptr(), alloc::Layout::array::<()>(self.cap).unwrap());
         }
     }
 }

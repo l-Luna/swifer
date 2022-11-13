@@ -1,6 +1,12 @@
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
 use std::mem::swap;
 use crate::gc::ManagedMem;
 use crate::heap::{GcCandidate, GcPtr, Heap};
+
+// Mark and Sweep GC
+// Traces all reachable objects, marking them; then copies all marked objects to a new heap, updating their pointers
 
 pub struct MarkAndSweepMem<T, Ptr = *const T>
     where T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>
@@ -22,6 +28,8 @@ impl<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>> MarkAndSweepMem<T, Ptr>{
         };
     }
 }
+
+//////////////// impls
 
 impl<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAndSweepMem<T, Ptr>{
     fn push(&mut self, v: Box<T>) -> Option<Ptr>{
@@ -52,27 +60,26 @@ impl<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAn
         self.active.for_each(cb);
     }
 
-    fn gc(&mut self, roots: Vec<Ptr>){
+    fn gc(&mut self, roots: Vec<&mut Ptr>){
         // mark phase: mark every reachable object
         let mut count = 0;
-        for root in roots{
+        for root in &roots{
             count += mark_reachable(&mut self.active, root);
         }
         // sweep phase: copy marked objects to new heap and update pointers
-        // don't use hashmap, as keys aren't necessarily hash (?)
-        let mut rel: Vec<(Ptr, Ptr)> = Vec::with_capacity(count);
+        let mut rel: HashMap<HashWrap<T, Ptr>, HashWrap<T, Ptr>> = HashMap::with_capacity(count);
         for i in (0..self.active.len()).rev(){
             let (obj, old_ptr): (Box<T>, Ptr) = self.active.take(i);
             if obj.is_marked(){
                 match self.inactive.push(obj){
-                    Some(new_ptr) => rel.push((old_ptr, new_ptr)),
+                    Some(new_ptr) => rel.insert(HashWrap::new(old_ptr), HashWrap::new(new_ptr)),
                     None => panic!("Mark and Sweep: could not allocate space in inactive heap for object")
-                }
+                };
             }else{
                 drop(obj);
             }
         }
-        let find = |p| rel.iter().filter_map(|e| if e.0 == p { Some(e.1.clone()) } else { None }).next().unwrap();
+        let find = |p: &Ptr| rel.get(&HashWrap::new(p.clone())).expect("Could not find updated pointer!").ptr.clone();
         self.inactive.for_each_mut(|o: &mut T| o.adjust_ptrs(find));
         // unmark everything
         self.inactive.for_each_mut(|o: &mut T| o.set_marked(false));
@@ -80,14 +87,18 @@ impl<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAn
         self.active.reset();
         // and swap them
         swap(&mut self.active, &mut self.inactive);
+        // update root pointers
+        for root in roots{
+            *root = find(root);
+        }
     }
 }
 
-fn mark_reachable<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>>(heap: &mut Heap<T, Ptr>, root: Ptr) -> usize{
+fn mark_reachable<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>>(heap: &mut Heap<T, Ptr>, root: &Ptr) -> usize{
     let mut count = 0;
     // unprocessed objects
     let mut stack: Vec<Ptr> = Vec::with_capacity(5);
-    stack.push(root);
+    stack.push(root.clone());
     while let Some(current) = stack.pop(){
         if let Some(obj) = heap.get_by(&current){
             // if not already marked,
@@ -104,3 +115,36 @@ fn mark_reachable<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>>(heap: &mut Heap<
     }
     return count;
 }
+
+// allow using HashMap over !Hash Ptr
+
+struct HashWrap<T, Ptr>
+    where T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>
+{
+    ptr: Ptr,
+    _phantom: PhantomData<T>
+}
+
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> HashWrap<T, Ptr>{
+    fn new(ptr: Ptr) -> Self{
+        return HashWrap{
+            ptr,
+            _phantom: PhantomData
+        };
+    }
+}
+
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Hash for HashWrap<T, Ptr>{
+    fn hash<H: Hasher>(&self, state: &mut H){
+        self.ptr.to_raw_ptr().hash(state)
+    }
+}
+
+// must be written manually due to ?Sized bound (???)
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> PartialEq for HashWrap<T, Ptr>{
+    fn eq(&self, other: &Self) -> bool{
+        return self.ptr == other.ptr;
+    }
+}
+
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Eq for HashWrap<T, Ptr>{}

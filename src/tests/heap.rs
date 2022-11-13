@@ -33,16 +33,23 @@ impl GcCandidate for MyUnsized{
         Vec::new()
     }
 
-    fn adjust_ptrs(&mut self, _: impl Fn(*const Self) -> *const Self){}
+    fn adjust_ptrs(&mut self, _: impl Fn(&*const Self) -> *const Self){}
 }
 
 #[test]
 fn test_basic_push_drop(){
     let mut heap = Heap::<MyUnsized>::new(100);
-    let ux = MyUnsized::new(dyn_arg!([1, 2, 3]));
-    heap.push(ux);
+    heap.push(MyUnsized::new(dyn_arg!([1, 2, 3]))).unwrap();
 
     drop(heap);
 
     assert_eq!(DROP_COUNTER.load(Ordering::Relaxed), 1);
+
+    let mut heap2 = Heap::<MyUnsized>::new(100);
+    heap2.push(MyUnsized::new(dyn_arg!([4]))).unwrap();
+    heap2.push(MyUnsized::new(dyn_arg!([5, 6, 7]))).unwrap();
+
+    drop(heap2);
+
+    assert_eq!(DROP_COUNTER.load(Ordering::Relaxed), 3);
 }
