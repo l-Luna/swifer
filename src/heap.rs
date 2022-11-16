@@ -167,6 +167,10 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
         }
         self.used = 0;
     }
+
+    pub fn capacity(&self) -> usize{
+        return self.cap;
+    }
 }
 
 impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Drop for Heap<T, Ptr>{

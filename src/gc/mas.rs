@@ -12,15 +12,13 @@ use crate::heap::{GcCandidate, GcPtr, Heap};
 pub struct MarkAndSweepMem<T, Ptr = *const T>
     where T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>
 {
-    active: Heap<T, Ptr>,
-    inactive: Heap<T, Ptr>
+    active: Heap<T, Ptr>
 }
 
 impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> MarkAndSweepMem<T, Ptr>{
     pub fn new(size: usize) -> Self{
         return MarkAndSweepMem{
-            active: Heap::new(size),
-            inactive: Heap::new(size)
+            active: Heap::new(size)
         };
     }
 }
@@ -57,6 +55,8 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAnd
     }
 
     fn gc(&mut self, roots: Vec<&mut Ptr>, weaks: Vec<&mut Ptr>){
+        // new target heap
+        let mut next: Heap<T, Ptr> = Heap::new(self.active.capacity());
         // mark phase: mark every reachable object
         let mut marked: HashSet<HashWrap<T, Ptr>> = HashSet::with_capacity(5);
         for root in &roots{
@@ -67,7 +67,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAnd
         for i in (0..self.active.len()).rev(){
             let (obj, old_ptr): (Box<T>, Ptr) = self.active.take(i);
             if marked.contains(&HashWrap::new(old_ptr.clone())){
-                match self.inactive.push(obj){
+                match next.push(obj){
                     Some(new_ptr) => rel.insert(HashWrap::new(old_ptr), HashWrap::new(new_ptr)),
                     None => panic!("Mark and Sweep: could not allocate space in inactive heap for object")
                 };
@@ -81,11 +81,11 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAnd
                 .ptr
                 .clone()
         };
-        self.inactive.for_each_mut(|o: &mut T| o.adjust_ptrs(find));
+        next.for_each_mut(|o: &mut T| o.adjust_ptrs(find));
         // reset the active heap - should not drop anything, since everything has been moved
         self.active.reset();
         // and swap them
-        swap(&mut self.active, &mut self.inactive);
+        swap(&mut self.active, &mut next);
         // update root pointers
         for root in roots{
             *root = find(root);
