@@ -21,7 +21,7 @@ pub trait ManagedMem<T, Ptr = *const T>
     fn for_each(&self, cb: impl FnMut(&T));
 
     // TODO: is this the right representation of roots?
-    fn gc(&mut self, roots: Vec<&mut Ptr>);
+    fn gc(&mut self, roots: Vec<&mut Ptr>, weaks: Vec<&mut Ptr>);
 }
 
 // No-GC memory, delegates directly to the (single) heap.
@@ -69,7 +69,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for NoGcMem
         self.heap.for_each(cb);
     }
 
-    fn gc(&mut self, _roots: Vec<&mut Ptr>){
+    fn gc(&mut self, _roots: Vec<&mut Ptr>, _weaks: Vec<&mut Ptr>){
         // no-op
     }
 }

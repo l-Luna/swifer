@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::mem::swap;
@@ -60,7 +61,7 @@ impl<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAn
         self.active.for_each(cb);
     }
 
-    fn gc(&mut self, roots: Vec<&mut Ptr>){
+    fn gc(&mut self, roots: Vec<&mut Ptr>, weaks: Vec<&mut Ptr>){
         // mark phase: mark every reachable object
         let mut count = 0;
         for root in &roots{
@@ -79,7 +80,12 @@ impl<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAn
                 drop(obj);
             }
         }
-        let find = |p: &Ptr| rel.get(&HashWrap::new(p.clone())).expect("Could not find updated pointer!").ptr.clone();
+        let find = |p: &Ptr| {
+            rel.get(&HashWrap::new(p.clone()))
+                .expect(format!("Could not find updated pointer for {:?} in table {rel:?}!", p.to_raw_ptr()).as_str())
+                .ptr
+                .clone()
+        };
         self.inactive.for_each_mut(|o: &mut T| o.adjust_ptrs(find));
         // unmark everything
         self.inactive.for_each_mut(|o: &mut T| o.set_marked(false));
@@ -90,6 +96,12 @@ impl<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAn
         // update root pointers
         for root in roots{
             *root = find(root);
+        }
+        for weak in weaks{
+            match rel.get(&HashWrap::new(weak.clone())) {
+                None => {}
+                Some(p) => *weak = p.ptr.clone()
+            }
         }
     }
 }
@@ -111,12 +123,14 @@ fn mark_reachable<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>>(heap: &mut Heap<
                     stack.push(ptr);
                 }
             }
+        }else{
+            panic!("Managed pointer {:?} not in heap!", HashWrap::new(current));
         }
     }
     return count;
 }
 
-// allow using HashMap over !Hash Ptr
+// allow using HashMap/Debug over !Hash/!Debug Ptr
 
 struct HashWrap<T, Ptr>
     where T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>
@@ -148,3 +162,9 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> PartialEq for HashWrap<T, Ptr>
 }
 
 impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Eq for HashWrap<T, Ptr>{}
+
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Debug for HashWrap<T, Ptr>{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result{
+        return self.ptr.to_raw_ptr().fmt(f);
+    }
+}

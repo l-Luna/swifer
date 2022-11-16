@@ -55,7 +55,6 @@ unsafe impl<T: Sized> DynSized for [T]{
 
 impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
 
-    //clear
     pub fn new(size: usize) -> Heap<T, Ptr>{
         let layout = alloc::Layout::from_size_align(size, T::dyn_align()).expect("Invalid layout for new Heap");
         let head = unsafe{ alloc::alloc(layout) };

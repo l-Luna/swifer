@@ -23,6 +23,12 @@ struct MyUnsized{
     values: [MyDataValue]
 }
 
+impl MyUnsized{
+    pub fn new_u<const N: usize>(values: [MyDataValue; N]) -> Box<MyUnsized>{
+        return MyUnsized::new(false, dyn_arg!(values));
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 struct MyPointer(*const MyUnsized);
 
@@ -85,11 +91,11 @@ fn test_mark_and_sweep(){
     // set up a heap with cycles
     let mut heap = MarkAndSweepMem::<MyUnsized, MyPointer>::new(500);
 
-    let mut root = heap.push(MyUnsized::new(false, dyn_arg!([MyDataValue::Int(1), MyDataValue::Nothing]))).unwrap();
-    let mut l = heap.push(MyUnsized::new(false, dyn_arg!([Int(0), Nothing]))).unwrap();
-    let mut r = heap.push(MyUnsized::new(false, dyn_arg!([Int(3), Nothing]))).unwrap();
-    let mut s = heap.push(MyUnsized::new(false, dyn_arg!([Int(8), Nothing]))).unwrap();
-    let mut n = heap.push(MyUnsized::new(false, dyn_arg!([Int(14)]))).unwrap();
+    let mut root = heap.push(MyUnsized::new_u([Int(1), Nothing])).unwrap();
+    let mut l = heap.push(MyUnsized::new_u([Int(0), Nothing])).unwrap();
+    let mut r = heap.push(MyUnsized::new_u([Int(3), Nothing])).unwrap();
+    let mut s = heap.push(MyUnsized::new_u([Int(8), Nothing])).unwrap();
+    let mut n = heap.push(MyUnsized::new_u([Int(14)])).unwrap();
 
     // root -> l
     { heap.get_by(&root).unwrap().values[1] = Pointer(l.clone()); }
@@ -100,18 +106,33 @@ fn test_mark_and_sweep(){
     { heap.get_by(&s).unwrap().values[1] = Pointer(s.clone()); }
     // n -> nothing
 
-    heap.gc(vec![&mut root, &mut l, &mut r, &mut s, &mut n]);
-    { assert!(DROPPED.lock().unwrap().eq(&vec![])); }
+    heap.gc(vec![&mut root, &mut l, &mut r, &mut s, &mut n], vec![]);
+    {
+        assert!(DROPPED.lock().unwrap().eq(&vec![]));
+        assert_eq!(heap.len(), 5); //root, l, r, s, n
+    }
 
-    heap.gc(vec![&mut root, &mut n]);
-    { assert!(DROPPED.lock().unwrap().eq(&vec![8])); }
+    heap.gc(vec![&mut root, &mut n], vec![&mut l, &mut r]);
+    {
+        assert!(DROPPED.lock().unwrap().eq(&vec![8]));
+        assert_eq!(heap.len(), 4); //root, l, r, n
+    }
 
-    heap.gc(vec![&mut l, &mut n]); //fails
-    { assert!(DROPPED.lock().unwrap().eq(&vec![8, 1])); }
+    heap.gc(vec![&mut l, &mut n], vec![]);
+    {
+        assert!(DROPPED.lock().unwrap().eq(&vec![8, 1]));
+        assert_eq!(heap.len(), 3); //l, r, n
+    }
 
-    heap.gc(vec![&mut n]);
-    { assert!(DROPPED.lock().unwrap().eq(&vec![8, 1, 0, 3])); }
+    heap.gc(vec![&mut n], vec![]);
+    {
+        assert!(DROPPED.lock().unwrap().eq(&vec![8, 1, 0, 3]));
+        assert_eq!(heap.len(), 1); //n
+    }
 
-    heap.gc(vec![]);
-    { assert!(DROPPED.lock().unwrap().eq(&vec![8, 1, 0, 3, 14])); }
+    heap.gc(vec![], vec![]);
+    {
+        assert!(DROPPED.lock().unwrap().eq(&vec![8, 1, 0, 3, 14]));
+        assert_eq!(heap.len(), 0);
+    }
 }
