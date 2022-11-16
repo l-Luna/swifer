@@ -1,3 +1,5 @@
+//! The mark-and-sweep garbage collector.
+
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
@@ -6,9 +8,10 @@ use std::mem::swap;
 use crate::gc::ManagedMem;
 use crate::heap::{GcCandidate, GcPtr, Heap};
 
-// Mark and Sweep GC
-// Traces all reachable objects, marking them; then copies all marked objects to a new heap, updating their pointers
-
+/// A memory space managed by a mark-and-sweep garbage collector.
+///
+/// When garbage collection is triggered, all objects reachable from roots are
+/// marked; then all marked objects are moved to a new heap, and unmarked objects dropped.
 pub struct MarkAndSweepMem<T, Ptr = *const T>
     where T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>
 {
@@ -16,6 +19,7 @@ pub struct MarkAndSweepMem<T, Ptr = *const T>
 }
 
 impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> MarkAndSweepMem<T, Ptr>{
+    /// Creates a new`MarkAndSweepMem` instance with the given capacity in bytes.
     pub fn new(size: usize) -> Self{
         return MarkAndSweepMem{
             active: Heap::new(size)

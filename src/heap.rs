@@ -1,3 +1,5 @@
+//! The heap data structure, alongside basic traits used by garbage collectors.
+
 use std::{alloc, mem};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
@@ -14,18 +16,35 @@ pub struct Heap<T, Ptr = *const T>
 }
 
 /// A (possibly-unsized) value that provides certain information about its memory layout.
-/// Automatically implemented for sized types.
+///
+/// Automatically implemented for sized types and slices.
 pub unsafe trait DynSized{
+    /// Returns the alignment of values of this type.
     fn dyn_align() -> usize;
 }
 
 /// A pointer to a value in managed memory, usable by heaps.
-/// Automatically implemented for `*const` pointers. Optionally implement on your own smart pointer type.
+///
+/// By default, raw `*const` pointers are used. You may want to implement this yourself if:
+///  - It's more convenient to do so, e.g. you already have a smart pointer type.
+///  - You want to store additional metadata, e.g. types, that are relevant for garbage collection.
+///
+/// In the latter case, additionally implement [GcPtr::copy_meta] and [GcPtr::has_significant_meta], and
+/// ensure your `==` implementation considers pointers with no metadata to be equal to ones that do.
+/// (The last point may be changed in a future version.)
 pub trait GcPtr<T: ?Sized>: Eq + Clone{
+    /// Create an instance of this pointer type with the target and size information given.
     fn from_raw_ptr(raw: *const T) -> Self;
+    /// Gets a raw pointer with the same target and size information as this pointer.
     fn to_raw_ptr(&self) -> *const T;
 
-    fn copy_meta(&mut self, other: &Self);
+    /// Copies any additional metadata from the given other pointer, such as types.
+    fn copy_meta(&mut self, _other: &Self){
+        // no-op
+    }
+    /// Whether this pointer type stores any additional metadata that must be copied.
+    /// Garbage collectors may opt not to track metadata (i.e. ignore [GcPtr::copy_meta]) if
+    /// this is false.
     fn has_significant_meta() -> bool{
         return false;
     }
@@ -35,7 +54,11 @@ pub trait GcPtr<T: ?Sized>: Eq + Clone{
 pub trait GcCandidate<Ptr = *const Self>: DynSized
     where Ptr: GcPtr<Self>
 {
+    /// Collects all pointers in this value to other garbage-collected objects.
+    /// Pointers to unmanaged memory must not be included.
     fn collect_managed_pointers(&self, this: &Ptr) -> Vec<Ptr>;
+    /// Replaces all managed pointers within this value according to the given function
+    /// (e.g. after this value's pointees have been moved).
     fn adjust_ptrs(&mut self, adjust: impl Fn(&Ptr) -> Ptr, this: &Ptr);
 }
 
@@ -44,7 +67,6 @@ pub trait GcCandidate<Ptr = *const Self>: DynSized
 impl<T: ?Sized> GcPtr<T> for *const T{
     fn from_raw_ptr(raw: *const T) -> Self { raw }
     fn to_raw_ptr(&self) -> *const T { *self }
-    fn copy_meta(&mut self, _other: &Self){}
 }
 
 unsafe impl<T: Sized> DynSized for T{
@@ -61,6 +83,7 @@ unsafe impl<T: Sized> DynSized for [T]{
 
 impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
 
+    /// Creates a new heap with the given capacity in bytes.
     pub fn new(size: usize) -> Heap<T, Ptr>{
         let layout = alloc::Layout::from_size_align(size, T::dyn_align()).expect("Invalid layout for new Heap");
         let head = unsafe{ alloc::alloc(layout) };
@@ -77,7 +100,11 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
         };
     }
 
-    // returns new pointer, or None if OOM
+    /// Pushes an object onto the end of this heap, returning a pointer to it,
+    /// or `None` if this heap is full.
+    ///
+    /// The given `with` function is applied to the pointer before saving, for e.g.
+    /// adding extra metadata.
     pub fn push_with(&mut self, v: Box<T>, with: impl FnOnce(Ptr) -> Ptr) -> Option<Ptr>{
         let size = mem::size_of_val(v.as_ref());
         // check we can allocate
@@ -105,28 +132,37 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
         return Some(new_ptr);
     }
 
+    /// Pushes an object onto the end of this heap, returning a pointer to it,
+    /// or `None` if this heap is full.
     pub fn push(&mut self, v: Box<T>) -> Option<Ptr>{
         return self.push_with(v, |x| x);
     }
 
+    /// Returns a reference to the value at the given index.
     pub fn get(&self, idx: usize) -> &T{
         unsafe{
             return self.indexes[idx].to_raw_ptr().as_ref().expect("Heap::get: GcPtr returned null");
         }
     }
 
+    /// Returns a mutable reference to the value at the given index.
     pub fn get_mut(&mut self, idx: usize) -> &mut T{
         unsafe{
             return (self.indexes[idx].to_raw_ptr() as *mut T).as_mut().expect("Heap::get_mut: GcPtr returned null");
         }
     }
 
+    /// Returns a mutable reference to the value at the given pointer, or `None`
+    /// if that pointer does not point to a value in this heap.
     pub fn get_by(&mut self, ptr: &Ptr) -> Option<&mut T>{
         return self.indexes.iter().position(|p| p == ptr).map(|x| self.get_mut(x));
     }
 
-    // removes the element from the heap, returning it and its old pointer
-    // *does not* change `used`, or move anything; only `reset` does
+    /// Moves the element at the given index out of this heap, returning it (contained in a box)
+    /// and its former pointer.
+    ///
+    /// Note that this does not allow new values to be allocated in their place; use
+    /// [Heap::reset] if that is necessary.
     pub fn take(&mut self, idx: usize) -> (Box<T>, Ptr){
         // need to preserve order because this might be called in a (reversed) loop
         let ptr = self.indexes.remove(idx);
@@ -146,24 +182,31 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
         }
     }
 
+    /// Returns the number of values stored in this heap.
     pub fn len(&self) -> usize{
         return self.indexes.len();
     }
 
+    /// Returns whether the given pointer points to a value in this heap.
     pub fn contains_ptr(&self, ptr: &Ptr) -> bool{
         return self.indexes.contains(ptr);
     }
 
+    // gross hack
+    /// Returns a pointer "equivalent" to the one given by ==, but with any additional metadata
+    /// know by this heap.
     pub fn to_full_ptr(&self, ptr: &Ptr) -> Ptr{
         return self.indexes.iter().filter(|x| x == &ptr).next().clone().unwrap().clone();
     }
 
+    /// Runs the given function over every value in this heap.
     pub fn for_each(&self, mut cb: impl FnMut(&T, &Ptr)){
         for i in 0..self.len(){
             cb(self.get(i), &self.indexes[i]);
         }
     }
 
+    /// Runs the given function over every value in this heap, allowing mutation.
     pub fn for_each_mut(&mut self, mut cb: impl FnMut(&mut T, &Ptr)){
         for i in 0..self.len(){
             let ptr = &self.indexes[i].clone();
@@ -171,7 +214,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
         }
     }
 
-    // drop everything and set `used` to 0, e.g. to refill later
+    /// Empties this heap, dropping all values and allowing new ones to be pushed in their place.
     pub fn reset(&mut self){
         for i in 0..self.len(){
             let ptr = &self.indexes[i];
@@ -183,6 +226,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
         self.used = 0;
     }
 
+    /// Returns the capacity of this heap, in bytes.
     pub fn capacity(&self) -> usize{
         return self.cap;
     }
