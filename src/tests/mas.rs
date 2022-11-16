@@ -38,14 +38,14 @@ unsafe impl DynSized for MyUnsized{
 }
 
 impl GcCandidate<MyPointer> for MyUnsized{
-    fn collect_managed_pointers(&self) -> Vec<MyPointer>{
+    fn collect_managed_pointers(&self, _this: &MyPointer) -> Vec<MyPointer>{
         return self.values.iter().filter_map(|x| match x{
             Pointer(p) => Some(p.clone()),
             _ => None
         }).collect();
     }
 
-    fn adjust_ptrs(&mut self, adjust: impl Fn(&MyPointer) -> MyPointer){
+    fn adjust_ptrs(&mut self, adjust: impl Fn(&MyPointer) -> MyPointer, _this: &MyPointer){
         for i in 0..self.values.len(){
             if let Pointer(p) = &self.values[i]{
                 self.values[i] = Pointer(adjust(p));
@@ -62,6 +62,8 @@ impl GcPtr<MyUnsized> for MyPointer{
     fn to_raw_ptr(&self) -> *const MyUnsized{
         return self.0;
     }
+
+    fn copy_meta(&mut self, _other: &MyPointer){}
 }
 
 // use dropping to check what has been deallocated at what point

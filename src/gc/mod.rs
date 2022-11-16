@@ -5,8 +5,9 @@ pub mod mas;
 pub trait ManagedMem<T, Ptr = *const T>
     where T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>
 {
-    // push, get, len, for_each, gc
     fn push(&mut self, v: Box<T>) -> Option<Ptr>;
+
+    fn push_with(&mut self, v: Box<T>, with: impl FnOnce(Ptr) -> Ptr) -> Option<Ptr>;
 
     fn get(&self, idx: usize) -> &T;
 
@@ -18,7 +19,7 @@ pub trait ManagedMem<T, Ptr = *const T>
 
     fn contains_ptr(&self, ptr: &Ptr) -> bool;
 
-    fn for_each(&self, cb: impl FnMut(&T));
+    fn for_each(&self, cb: impl FnMut(&T, &Ptr));
 
     // TODO: is this the right representation of roots?
     fn gc(&mut self, roots: Vec<&mut Ptr>, weaks: Vec<&mut Ptr>);
@@ -45,6 +46,10 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for NoGcMem
         return self.heap.push(v);
     }
 
+    fn push_with(&mut self, v: Box<T>, with: impl FnOnce(Ptr) -> Ptr) -> Option<Ptr> {
+        return self.heap.push_with(v, with);
+    }
+
     fn get(&self, idx: usize) -> &T{
         return self.heap.get(idx);
     }
@@ -65,7 +70,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for NoGcMem
         return self.heap.contains_ptr(ptr);
     }
 
-    fn for_each(&self, cb: impl FnMut(&T)){
+    fn for_each(&self, cb: impl FnMut(&T, &Ptr)){
         self.heap.for_each(cb);
     }
 

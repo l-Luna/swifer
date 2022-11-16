@@ -24,14 +24,19 @@ pub unsafe trait DynSized{
 pub trait GcPtr<T: ?Sized>: Eq + Clone{
     fn from_raw_ptr(raw: *const T) -> Self;
     fn to_raw_ptr(&self) -> *const T;
+
+    fn copy_meta(&mut self, other: &Self);
+    fn has_significant_meta() -> bool{
+        return false;
+    }
 }
 
 /// A value in managed memory that may point to other managed values, keeping them reachable.
 pub trait GcCandidate<Ptr = *const Self>: DynSized
     where Ptr: GcPtr<Self>
 {
-    fn collect_managed_pointers(&self) -> Vec<Ptr>;
-    fn adjust_ptrs(&mut self, adjust: impl Fn(&Ptr) -> Ptr);
+    fn collect_managed_pointers(&self, this: &Ptr) -> Vec<Ptr>;
+    fn adjust_ptrs(&mut self, adjust: impl Fn(&Ptr) -> Ptr, this: &Ptr);
 }
 
 //////////////// impls
@@ -39,6 +44,7 @@ pub trait GcCandidate<Ptr = *const Self>: DynSized
 impl<T: ?Sized> GcPtr<T> for *const T{
     fn from_raw_ptr(raw: *const T) -> Self { raw }
     fn to_raw_ptr(&self) -> *const T { *self }
+    fn copy_meta(&mut self, _other: &Self){}
 }
 
 unsafe impl<T: Sized> DynSized for T{
@@ -72,7 +78,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
     }
 
     // returns new pointer, or None if OOM
-    pub fn push(&mut self, v: Box<T>) -> Option<Ptr>{
+    pub fn push_with(&mut self, v: Box<T>, with: impl FnOnce(Ptr) -> Ptr) -> Option<Ptr>{
         let size = mem::size_of_val(v.as_ref());
         // check we can allocate
         if self.cap - self.used < size{
@@ -92,11 +98,15 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
             // deallocate the box's memory
             alloc::dealloc(raw as *mut u8, alloc::Layout::for_value_raw(raw));
             // keep track of the new entry
-            new_ptr = Ptr::from_raw_ptr(dest_ptr);
+            new_ptr = with(Ptr::from_raw_ptr(dest_ptr));
             self.indexes.push(new_ptr.clone());
         }
         self.used += size;
         return Some(new_ptr);
+    }
+
+    pub fn push(&mut self, v: Box<T>) -> Option<Ptr>{
+        return self.push_with(v, |x| x);
     }
 
     pub fn get(&self, idx: usize) -> &T{
@@ -144,15 +154,20 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
         return self.indexes.contains(ptr);
     }
 
-    pub fn for_each(&self, mut cb: impl FnMut(&T)){
+    pub fn to_full_ptr(&self, ptr: &Ptr) -> Ptr{
+        return self.indexes.iter().filter(|x| x == &ptr).next().clone().unwrap().clone();
+    }
+
+    pub fn for_each(&self, mut cb: impl FnMut(&T, &Ptr)){
         for i in 0..self.len(){
-            cb(self.get(i));
+            cb(self.get(i), &self.indexes[i]);
         }
     }
 
-    pub fn for_each_mut(&mut self, mut cb: impl FnMut(&mut T)){
+    pub fn for_each_mut(&mut self, mut cb: impl FnMut(&mut T, &Ptr)){
         for i in 0..self.len(){
-            cb(self.get_mut(i));
+            let ptr = &self.indexes[i].clone();
+            cb(self.get_mut(i), ptr);
         }
     }
 

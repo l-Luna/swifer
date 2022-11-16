@@ -29,11 +29,11 @@ unsafe impl DynSized for MyUnsized{
 }
 
 impl GcCandidate for MyUnsized{
-    fn collect_managed_pointers(&self) -> Vec<*const Self>{
+    fn collect_managed_pointers(&self, _this: &*const Self) -> Vec<*const Self>{
         Vec::new()
     }
 
-    fn adjust_ptrs(&mut self, _: impl Fn(&*const Self) -> *const Self){}
+    fn adjust_ptrs(&mut self, _: impl Fn(&*const Self) -> *const Self, _this: &*const Self){}
 }
 
 #[test]
