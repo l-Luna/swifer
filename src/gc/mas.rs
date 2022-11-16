@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
@@ -10,18 +10,13 @@ use crate::heap::{GcCandidate, GcPtr, Heap};
 // Traces all reachable objects, marking them; then copies all marked objects to a new heap, updating their pointers
 
 pub struct MarkAndSweepMem<T, Ptr = *const T>
-    where T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>
+    where T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>
 {
     active: Heap<T, Ptr>,
     inactive: Heap<T, Ptr>
 }
 
-pub trait MasCandidate<Ptr: GcPtr<Self>>: GcCandidate<Ptr>{
-    fn is_marked(&self) -> bool;
-    fn set_marked(&mut self, marked: bool);
-}
-
-impl<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>> MarkAndSweepMem<T, Ptr>{
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> MarkAndSweepMem<T, Ptr>{
     pub fn new(size: usize) -> Self{
         return MarkAndSweepMem{
             active: Heap::new(size),
@@ -32,7 +27,7 @@ impl<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>> MarkAndSweepMem<T, Ptr>{
 
 //////////////// impls
 
-impl<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAndSweepMem<T, Ptr>{
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAndSweepMem<T, Ptr>{
     fn push(&mut self, v: Box<T>) -> Option<Ptr>{
         return self.active.push(v);
     }
@@ -63,15 +58,15 @@ impl<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAn
 
     fn gc(&mut self, roots: Vec<&mut Ptr>, weaks: Vec<&mut Ptr>){
         // mark phase: mark every reachable object
-        let mut count = 0;
+        let mut marked: HashSet<HashWrap<T, Ptr>> = HashSet::with_capacity(5);
         for root in &roots{
-            count += mark_reachable(&mut self.active, root);
+            mark_reachable(&mut self.active, root, &mut marked);
         }
         // sweep phase: copy marked objects to new heap and update pointers
-        let mut rel: HashMap<HashWrap<T, Ptr>, HashWrap<T, Ptr>> = HashMap::with_capacity(count);
+        let mut rel: HashMap<HashWrap<T, Ptr>, HashWrap<T, Ptr>> = HashMap::with_capacity(marked.len());
         for i in (0..self.active.len()).rev(){
             let (obj, old_ptr): (Box<T>, Ptr) = self.active.take(i);
-            if obj.is_marked(){
+            if marked.contains(&HashWrap::new(old_ptr.clone())){
                 match self.inactive.push(obj){
                     Some(new_ptr) => rel.insert(HashWrap::new(old_ptr), HashWrap::new(new_ptr)),
                     None => panic!("Mark and Sweep: could not allocate space in inactive heap for object")
@@ -87,8 +82,6 @@ impl<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAn
                 .clone()
         };
         self.inactive.for_each_mut(|o: &mut T| o.adjust_ptrs(find));
-        // unmark everything
-        self.inactive.for_each_mut(|o: &mut T| o.set_marked(false));
         // reset the active heap - should not drop anything, since everything has been moved
         self.active.reset();
         // and swap them
@@ -106,7 +99,7 @@ impl<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAn
     }
 }
 
-fn mark_reachable<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>>(heap: &mut Heap<T, Ptr>, root: &Ptr) -> usize{
+fn mark_reachable<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>>(heap: &mut Heap<T, Ptr>, root: &Ptr, marked: &mut HashSet<HashWrap<T, Ptr>>) -> usize{
     let mut count = 0;
     // unprocessed objects
     let mut stack: Vec<Ptr> = Vec::with_capacity(5);
@@ -114,9 +107,10 @@ fn mark_reachable<T: ?Sized + MasCandidate<Ptr>, Ptr: GcPtr<T>>(heap: &mut Heap<
     while let Some(current) = stack.pop(){
         if let Some(obj) = heap.get_by(&current){
             // if not already marked,
-            if !obj.is_marked(){
+            let marker = HashWrap::new(current.clone());
+            if !marked.contains(&marker){
                 // mark the object
-                obj.set_marked(true);
+                marked.insert(marker);
                 count += 1;
                 // schedule every pointee for marking
                 for ptr in obj.collect_managed_pointers(){

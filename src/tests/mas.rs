@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use dyn_struct2::dyn_arg;
 use dyn_struct_derive2::DynStruct;
 use crate::gc::ManagedMem;
-use crate::gc::mas::{MarkAndSweepMem, MasCandidate};
+use crate::gc::mas::MarkAndSweepMem;
 use crate::heap::{DynSized, GcCandidate, GcPtr};
 use crate::tests::mas::MyDataValue::{Pointer, Int, Nothing};
 
@@ -19,13 +19,12 @@ enum MyDataValue{
 #[repr(C)]
 #[derive(Debug, DynStruct)]
 struct MyUnsized{
-    marked: bool,
     values: [MyDataValue]
 }
 
 impl MyUnsized{
     pub fn new_u<const N: usize>(values: [MyDataValue; N]) -> Box<MyUnsized>{
-        return MyUnsized::new(false, dyn_arg!(values));
+        return MyUnsized::new(dyn_arg!(values));
     }
 }
 
@@ -62,16 +61,6 @@ impl GcPtr<MyUnsized> for MyPointer{
 
     fn to_raw_ptr(&self) -> *const MyUnsized{
         return self.0;
-    }
-}
-
-impl MasCandidate<MyPointer> for MyUnsized{
-    fn is_marked(&self) -> bool {
-        return self.marked;
-    }
-
-    fn set_marked(&mut self, marked: bool) {
-        self.marked = marked;
     }
 }
 
