@@ -29,9 +29,8 @@ pub unsafe trait DynSized{
 ///  - It's more convenient to do so, e.g. you already have a smart pointer type.
 ///  - You want to store additional metadata, e.g. types, that are relevant for garbage collection.
 ///
-/// In the latter case, additionally implement [GcPtr::copy_meta] and [GcPtr::has_significant_meta], and
-/// ensure your `==` implementation considers pointers with no metadata to be equal to ones that do.
-/// (The last point may be changed in a future version.)
+/// In the latter case, additionally implement [GcPtr::copy_meta], [GcPtr::has_significant_meta],
+/// and [GcPtr::eq_ignoring_meta].
 pub trait GcPtr<T: ?Sized>: Eq + Clone{
     /// Create an instance of this pointer type with the target and size information given.
     fn from_raw_ptr(raw: *const T) -> Self;
@@ -47,6 +46,11 @@ pub trait GcPtr<T: ?Sized>: Eq + Clone{
     /// this is false.
     fn has_significant_meta() -> bool{
         return false;
+    }
+    /// Returns whether this pointer is equal to the other pointer, ignoring any additional
+    /// metadata, i.e. whether they point to the same memory.
+    fn eq_ignoring_meta(&self, other: &Self) -> bool{
+        return self == other;
     }
 }
 
@@ -192,11 +196,10 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
         return self.indexes.contains(ptr);
     }
 
-    // gross hack
-    /// Returns a pointer "equivalent" to the one given by ==, but with any additional metadata
-    /// know by this heap.
+    /// Returns a pointer equivalent to the one given, but with any additional metadata
+    /// know by this heap, using [GcPtr::eq_ignoring_meta].
     pub fn to_full_ptr(&self, ptr: &Ptr) -> Ptr{
-        return self.indexes.iter().filter(|x| x == &ptr).next().clone().unwrap().clone();
+        return self.indexes.iter().filter(|x| x.eq_ignoring_meta(&ptr)).next().clone().unwrap().clone();
     }
 
     /// Runs the given function over every value in this heap.

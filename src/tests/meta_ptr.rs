@@ -12,7 +12,7 @@ union PolyData{
     nothing_val: ()
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 struct PolyPtr{
     ptr: *const PolyData,
     tag: PolyTag
@@ -74,18 +74,11 @@ impl GcPtr<PolyData> for PolyPtr{
     fn has_significant_meta() -> bool{
         return true;
     }
-}
 
-// Note that == allows an untyped PolyPtr to equal typed pointers for the purpose of lookup
-// TODO: this is a bad pattern! use a `GcEq`? with `impl GcEq for Eq`?
-
-impl PartialEq for PolyPtr{
-    fn eq(&self, other: &Self) -> bool{
+    fn eq_ignoring_meta(&self, other: &Self) -> bool {
         return self.ptr == other.ptr;
     }
 }
-
-impl Eq for PolyPtr{}
 
 #[test]
 fn test_ptr_with_meta(){

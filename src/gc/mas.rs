@@ -162,7 +162,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Hash for HashWrap<T, Ptr>{
 // must be written manually due to ?Sized bound (???)
 impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> PartialEq for HashWrap<T, Ptr>{
     fn eq(&self, other: &Self) -> bool{
-        return self.ptr == other.ptr;
+        return self.ptr.eq_ignoring_meta(&other.ptr);
     }
 }
 
