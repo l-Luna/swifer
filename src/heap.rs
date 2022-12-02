@@ -29,8 +29,8 @@ pub unsafe trait DynSized{
 ///  - It's more convenient to do so, e.g. you already have a smart pointer type.
 ///  - You want to store additional metadata, e.g. types, that are relevant for garbage collection.
 ///
-/// In the latter case, additionally implement [GcPtr::copy_meta], [GcPtr::has_significant_meta],
-/// and [GcPtr::eq_ignoring_meta].
+/// In the latter case, additionally implement [HeapPtr::copy_meta], [HeapPtr::has_significant_meta],
+/// and [HeapPtr::eq_ignoring_meta].
 pub trait HeapPtr<T: ?Sized>: Eq + Clone{
     /// Create an instance of this pointer type with the target and size information given.
     fn from_raw_ptr(raw: *const T) -> Self;
