@@ -1,9 +1,10 @@
 use std::mem;
 use std::sync::atomic::{AtomicU8, Ordering};
-use crate::heap::{DynSized, GcCandidate, Heap};
+use crate::heap::{DynSized, Heap};
 
 use dyn_struct2::dyn_arg;
 use dyn_struct_derive2::DynStruct;
+use crate::gc::GcCandidate;
 
 // setup the heap allocated struct
 

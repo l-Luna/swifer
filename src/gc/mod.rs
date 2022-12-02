@@ -1,6 +1,6 @@
 //! Garbage collectors and GC-managed memory.
 
-use crate::heap::{GcCandidate, GcPtr, Heap};
+use crate::heap::{DynSized, Heap, HeapPtr};
 
 pub mod mas;
 
@@ -15,7 +15,7 @@ pub mod mas;
 /// By default, raw constant pointers (`*const T`) are used. Another type may
 /// be used, so long as it implements [GcPtr].
 pub trait ManagedMem<T, Ptr = *const T>
-    where T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>
+    where T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>
 {
     /// Pushes an object onto the end, returning a pointer to it, or `None` if this is full.
     fn push(&mut self, v: Box<T>) -> Option<Ptr>;
@@ -53,18 +53,30 @@ pub trait ManagedMem<T, Ptr = *const T>
     fn gc(&mut self, roots: Vec<&mut Ptr>, weaks: Vec<&mut Ptr>);
 }
 
+/// A value in managed memory that may point to other managed values, keeping them reachable.
+pub trait GcCandidate<Ptr = *const Self>: DynSized
+    where Ptr: HeapPtr<Self>
+{
+    /// Collects all pointers in this value to other garbage-collected objects.
+    /// Pointers to unmanaged memory must not be included.
+    fn collect_managed_pointers(&self, this: &Ptr) -> Vec<Ptr>;
+    /// Replaces all managed pointers within this value according to the given function
+    /// (e.g. after this value's pointees have been moved).
+    fn adjust_ptrs(&mut self, adjust: impl Fn(&Ptr) -> Ptr, this: &Ptr);
+}
+
 // No-GC memory, delegates directly to the (single) heap.
 
 /// A simple implementation of [ManagedMem] that does not implement garbage collection.
 ///
 /// [ManagedMem::gc] calls have no effect, and memory is not freed until this is dropped.
 pub struct NoGcMem<T, Ptr = *const T>
-    where T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>
+    where T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>
 {
     heap: Heap<T, Ptr>
 }
 
-impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> NoGcMem<T, Ptr>{
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>> NoGcMem<T, Ptr>{
     /// Creates a new `NoGcMem` with the given capacity in bytes.
     pub fn new(size: usize) -> Self{
         return NoGcMem{
@@ -73,7 +85,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> NoGcMem<T, Ptr>{
     }
 }
 
-impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for NoGcMem<T, Ptr>{
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>> ManagedMem<T, Ptr> for NoGcMem<T, Ptr>{
     fn push(&mut self, v: Box<T>) -> Option<Ptr>{
         return self.heap.push(v);
     }

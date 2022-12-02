@@ -2,10 +2,10 @@ use std::mem;
 use std::sync::Mutex;
 use dyn_struct2::dyn_arg;
 use dyn_struct_derive2::DynStruct;
-use crate::gc::ManagedMem;
+use crate::gc::{GcCandidate, ManagedMem};
 use crate::gc::mas::MarkAndSweepMem;
-use crate::heap::{DynSized, GcCandidate, GcPtr};
-use crate::tests::mas::MyDataValue::{Pointer, Int, Nothing};
+use crate::heap::{DynSized, HeapPtr};
+use crate::tests::mas::MyDataValue::{Int, Nothing, Pointer};
 
 // setup the data types
 
@@ -54,7 +54,7 @@ impl GcCandidate<MyPointer> for MyUnsized{
     }
 }
 
-impl GcPtr<MyUnsized> for MyPointer{
+impl HeapPtr<MyUnsized> for MyPointer{
     fn from_raw_ptr(raw: *const MyUnsized) -> Self{
         return MyPointer(raw);
     }

@@ -2,9 +2,9 @@
 // Test a data type that stores type information in the heap's pointers, not inline
 
 use std::ptr::null;
-use crate::gc::ManagedMem;
+use crate::gc::{GcCandidate, ManagedMem};
 use crate::gc::mas::MarkAndSweepMem;
-use crate::heap::{GcCandidate, GcPtr};
+use crate::heap::HeapPtr;
 
 union PolyData{
     i_val: i64,
@@ -55,7 +55,7 @@ impl GcCandidate<PolyPtr> for PolyData{
     }
 }
 
-impl GcPtr<PolyData> for PolyPtr{
+impl HeapPtr<PolyData> for PolyPtr{
     fn from_raw_ptr(raw: *const PolyData) -> Self{
         return PolyPtr{
             ptr: raw,

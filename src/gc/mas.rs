@@ -5,20 +5,20 @@ use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::mem::swap;
-use crate::gc::ManagedMem;
-use crate::heap::{GcCandidate, GcPtr, Heap};
+use crate::gc::{GcCandidate, ManagedMem};
+use crate::heap::{Heap, HeapPtr};
 
 /// A memory space managed by a mark-and-sweep garbage collector.
 ///
 /// When garbage collection is triggered, all objects reachable from roots are
 /// marked; then all marked objects are moved to a new heap, and unmarked objects dropped.
 pub struct MarkAndSweepMem<T, Ptr = *const T>
-    where T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>
+    where T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>
 {
     active: Heap<T, Ptr>
 }
 
-impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> MarkAndSweepMem<T, Ptr>{
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>> MarkAndSweepMem<T, Ptr>{
     /// Creates a new`MarkAndSweepMem` instance with the given capacity in bytes.
     pub fn new(size: usize) -> Self{
         return MarkAndSweepMem{
@@ -29,7 +29,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> MarkAndSweepMem<T, Ptr>{
 
 //////////////// impls
 
-impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAndSweepMem<T, Ptr>{
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>> ManagedMem<T, Ptr> for MarkAndSweepMem<T, Ptr>{
     fn push(&mut self, v: Box<T>) -> Option<Ptr>{
         return self.active.push(v);
     }
@@ -107,7 +107,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> ManagedMem<T, Ptr> for MarkAnd
     }
 }
 
-fn mark_reachable<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>>(heap: &mut Heap<T, Ptr>, root: &Ptr, marked: &mut HashSet<HashWrap<T, Ptr>>) -> usize{
+fn mark_reachable<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>>(heap: &mut Heap<T, Ptr>, root: &Ptr, marked: &mut HashSet<HashWrap<T, Ptr>>) -> usize{
     let mut count = 0;
     // unprocessed objects
     let mut stack: Vec<Ptr> = Vec::with_capacity(5);
@@ -138,13 +138,13 @@ fn mark_reachable<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>>(heap: &mut Heap<T
 // allow using HashMap/Debug over !Hash/!Debug Ptr
 
 struct HashWrap<T, Ptr>
-    where T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>
+    where T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>
 {
     ptr: Ptr,
     _phantom: PhantomData<T>
 }
 
-impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> HashWrap<T, Ptr>{
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>> HashWrap<T, Ptr>{
     fn new(ptr: Ptr) -> Self{
         return HashWrap{
             ptr,
@@ -153,22 +153,22 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> HashWrap<T, Ptr>{
     }
 }
 
-impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Hash for HashWrap<T, Ptr>{
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>> Hash for HashWrap<T, Ptr>{
     fn hash<H: Hasher>(&self, state: &mut H){
         self.ptr.to_raw_ptr().hash(state)
     }
 }
 
 // must be written manually due to ?Sized bound (???)
-impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> PartialEq for HashWrap<T, Ptr>{
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>> PartialEq for HashWrap<T, Ptr>{
     fn eq(&self, other: &Self) -> bool{
         return self.ptr.eq_ignoring_meta(&other.ptr);
     }
 }
 
-impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Eq for HashWrap<T, Ptr>{}
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>> Eq for HashWrap<T, Ptr>{}
 
-impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Debug for HashWrap<T, Ptr>{
+impl<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>> Debug for HashWrap<T, Ptr>{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result{
         return self.ptr.to_raw_ptr().fmt(f);
     }

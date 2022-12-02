@@ -6,7 +6,7 @@ use std::ptr::NonNull;
 
 /// A fixed-capacity contiguous vector of possibly-unsized data.
 pub struct Heap<T, Ptr = *const T>
-    where T: ?Sized + DynSized, Ptr: GcPtr<T>
+    where T: ?Sized + DynSized, Ptr: HeapPtr<T>
 {
     head: NonNull<u8>, // T is ?Sized, so NonNull<T> would need metadata that doesn't exist yet
     cap: usize,
@@ -31,7 +31,7 @@ pub unsafe trait DynSized{
 ///
 /// In the latter case, additionally implement [GcPtr::copy_meta], [GcPtr::has_significant_meta],
 /// and [GcPtr::eq_ignoring_meta].
-pub trait GcPtr<T: ?Sized>: Eq + Clone{
+pub trait HeapPtr<T: ?Sized>: Eq + Clone{
     /// Create an instance of this pointer type with the target and size information given.
     fn from_raw_ptr(raw: *const T) -> Self;
     /// Gets a raw pointer with the same target and size information as this pointer.
@@ -54,21 +54,9 @@ pub trait GcPtr<T: ?Sized>: Eq + Clone{
     }
 }
 
-/// A value in managed memory that may point to other managed values, keeping them reachable.
-pub trait GcCandidate<Ptr = *const Self>: DynSized
-    where Ptr: GcPtr<Self>
-{
-    /// Collects all pointers in this value to other garbage-collected objects.
-    /// Pointers to unmanaged memory must not be included.
-    fn collect_managed_pointers(&self, this: &Ptr) -> Vec<Ptr>;
-    /// Replaces all managed pointers within this value according to the given function
-    /// (e.g. after this value's pointees have been moved).
-    fn adjust_ptrs(&mut self, adjust: impl Fn(&Ptr) -> Ptr, this: &Ptr);
-}
-
 //////////////// impls
 
-impl<T: ?Sized> GcPtr<T> for *const T{
+impl<T: ?Sized> HeapPtr<T> for *const T{
     fn from_raw_ptr(raw: *const T) -> Self { raw }
     fn to_raw_ptr(&self) -> *const T { *self }
 }
@@ -85,7 +73,7 @@ unsafe impl<T: Sized> DynSized for [T]{
     }
 }
 
-impl<T: ?Sized + DynSized, Ptr: GcPtr<T>> Heap<T, Ptr>{
+impl<T: ?Sized + DynSized, Ptr: HeapPtr<T>> Heap<T, Ptr>{
 
     /// Creates a new heap with the given capacity in bytes.
     pub fn new(size: usize) -> Heap<T, Ptr>{
@@ -235,7 +223,7 @@ impl<T: ?Sized + DynSized, Ptr: GcPtr<T>> Heap<T, Ptr>{
     }
 }
 
-impl<T: ?Sized + DynSized, Ptr: GcPtr<T>> Drop for Heap<T, Ptr>{
+impl<T: ?Sized + DynSized, Ptr: HeapPtr<T>> Drop for Heap<T, Ptr>{
     fn drop(&mut self){
         // drop each object
         self.reset();
