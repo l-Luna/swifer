@@ -6,7 +6,7 @@ use std::ptr::NonNull;
 
 /// A fixed-capacity contiguous vector of possibly-unsized data.
 pub struct Heap<T, Ptr = *const T>
-    where T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>
+    where T: ?Sized + DynSized, Ptr: GcPtr<T>
 {
     head: NonNull<u8>, // T is ?Sized, so NonNull<T> would need metadata that doesn't exist yet
     cap: usize,
@@ -85,7 +85,7 @@ unsafe impl<T: Sized> DynSized for [T]{
     }
 }
 
-impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
+impl<T: ?Sized + DynSized, Ptr: GcPtr<T>> Heap<T, Ptr>{
 
     /// Creates a new heap with the given capacity in bytes.
     pub fn new(size: usize) -> Heap<T, Ptr>{
@@ -235,7 +235,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Heap<T, Ptr>{
     }
 }
 
-impl<T: ?Sized + GcCandidate<Ptr>, Ptr: GcPtr<T>> Drop for Heap<T, Ptr>{
+impl<T: ?Sized + DynSized, Ptr: GcPtr<T>> Drop for Heap<T, Ptr>{
     fn drop(&mut self){
         // drop each object
         self.reset();
