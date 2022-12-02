@@ -185,7 +185,7 @@ impl<T: ?Sized + DynSized, Ptr: HeapPtr<T>> Heap<T, Ptr>{
     }
 
     /// Returns a pointer equivalent to the one given, but with any additional metadata
-    /// know by this heap, using [GcPtr::eq_ignoring_meta].
+    /// know by this heap, using [HeapPtr::eq_ignoring_meta].
     pub fn to_full_ptr(&self, ptr: &Ptr) -> Ptr{
         return self.indexes.iter().filter(|x| x.eq_ignoring_meta(&ptr)).next().clone().unwrap().clone();
     }
