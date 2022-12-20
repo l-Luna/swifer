@@ -96,34 +96,35 @@ fn test_mark_and_sweep(){
     // s -> s
     { heap.get_by(&s).unwrap().values[1] = Pointer(s.clone()); }
     // n -> nothing
+    unsafe{
+        heap.gc(vec![&mut root, &mut l, &mut r, &mut s, &mut n], vec![]);
+        {
+            assert!(DROPPED.lock().unwrap().eq(&vec![]));
+            assert_eq!(heap.len(), 5); //root, l, r, s, n
+        }
 
-    heap.gc(vec![&mut root, &mut l, &mut r, &mut s, &mut n], vec![]);
-    {
-        assert!(DROPPED.lock().unwrap().eq(&vec![]));
-        assert_eq!(heap.len(), 5); //root, l, r, s, n
-    }
+        heap.gc(vec![&mut root, &mut n], vec![&mut l, &mut r]);
+        {
+            assert!(DROPPED.lock().unwrap().eq(&vec![8]));
+            assert_eq!(heap.len(), 4); //root, l, r, n
+        }
 
-    heap.gc(vec![&mut root, &mut n], vec![&mut l, &mut r]);
-    {
-        assert!(DROPPED.lock().unwrap().eq(&vec![8]));
-        assert_eq!(heap.len(), 4); //root, l, r, n
-    }
+        heap.gc(vec![&mut l, &mut n], vec![]);
+        {
+            assert!(DROPPED.lock().unwrap().eq(&vec![8, 1]));
+            assert_eq!(heap.len(), 3); //l, r, n
+        }
 
-    heap.gc(vec![&mut l, &mut n], vec![]);
-    {
-        assert!(DROPPED.lock().unwrap().eq(&vec![8, 1]));
-        assert_eq!(heap.len(), 3); //l, r, n
-    }
+        heap.gc(vec![&mut n], vec![]);
+        {
+            assert!(DROPPED.lock().unwrap().eq(&vec![8, 1, 0, 3]));
+            assert_eq!(heap.len(), 1); //n
+        }
 
-    heap.gc(vec![&mut n], vec![]);
-    {
-        assert!(DROPPED.lock().unwrap().eq(&vec![8, 1, 0, 3]));
-        assert_eq!(heap.len(), 1); //n
-    }
-
-    heap.gc(vec![], vec![]);
-    {
-        assert!(DROPPED.lock().unwrap().eq(&vec![8, 1, 0, 3, 14]));
-        assert_eq!(heap.len(), 0);
+        heap.gc(vec![], vec![]);
+        {
+            assert!(DROPPED.lock().unwrap().eq(&vec![8, 1, 0, 3, 14]));
+            assert_eq!(heap.len(), 0);
+        }
     }
 }

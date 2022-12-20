@@ -19,7 +19,7 @@ pub struct MarkAndSweepMem<T, Ptr = *const T>
 }
 
 impl<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>> MarkAndSweepMem<T, Ptr>{
-    /// Creates a new`MarkAndSweepMem` instance with the given capacity in bytes.
+    /// Creates a new `MarkAndSweepMem` instance with the given capacity in bytes.
     pub fn new(size: usize) -> Self{
         return MarkAndSweepMem{
             active: Heap::new(size)
@@ -62,13 +62,13 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>> ManagedMem<T, Ptr> for MarkA
         self.active.for_each(cb);
     }
 
-    fn gc(&mut self, roots: Vec<&mut Ptr>, weaks: Vec<&mut Ptr>){
+    unsafe fn gc(&mut self, roots: Vec<*mut Ptr>, weaks: Vec<*mut Ptr>){
         // new target heap
         let mut next: Heap<T, Ptr> = Heap::new(self.active.capacity());
         // mark phase: mark every reachable object
         let mut marked: HashSet<HashWrap<T, Ptr>> = HashSet::with_capacity(5);
         for root in &roots{
-            mark_reachable(&mut self.active, root, &mut marked);
+            mark_reachable(&mut self.active, &**root, &mut marked);
         }
         // sweep phase: copy marked objects to new heap and update pointers
         let mut rel: HashMap<HashWrap<T, Ptr>, HashWrap<T, Ptr>> = HashMap::with_capacity(marked.len());
@@ -96,10 +96,10 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>> ManagedMem<T, Ptr> for MarkA
         swap(&mut self.active, &mut next);
         // update root pointers
         for root in roots{
-            *root = find(root);
+            *root = find(&*root);
         }
         for weak in weaks{
-            match rel.get(&HashWrap::new(weak.clone())) {
+            match rel.get(&HashWrap::new((*weak).clone())) {
                 None => {}
                 Some(p) => *weak = p.ptr.clone()
             }

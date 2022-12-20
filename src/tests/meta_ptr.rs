@@ -94,15 +94,17 @@ fn test_ptr_with_meta(){
     { let y = heap.get_by(&r).unwrap(); y.ptr_val = l.ptr; }
     { let z = heap.get_by(&tn).unwrap(); z.ptr_val = n.ptr; }
 
-    heap.gc(vec![&mut int, &mut l, &mut r, &mut tn, &mut n], vec![]);
-    assert_eq!(heap.len(), 5);
+    unsafe{
+        heap.gc(vec![&mut int, &mut l, &mut r, &mut tn, &mut n], vec![]);
+        assert_eq!(heap.len(), 5);
 
-    heap.gc(vec![&mut l, &mut tn], vec![&mut r, &mut n]);
-    assert_eq!(heap.len(), 4);
+        heap.gc(vec![&mut l, &mut tn], vec![&mut r, &mut n]);
+        assert_eq!(heap.len(), 4);
 
-    heap.gc(vec![&mut tn], vec![&mut n]);
-    assert_eq!(heap.len(), 2);
+        heap.gc(vec![&mut tn], vec![&mut n]);
+        assert_eq!(heap.len(), 2);
 
-    heap.gc(vec![&mut n], vec![]);
-    assert_eq!(heap.len(), 1);
+        heap.gc(vec![&mut n], vec![]);
+        assert_eq!(heap.len(), 1);
+    }
 }

@@ -50,7 +50,13 @@ pub trait ManagedMem<T, Ptr = *const T>
     ///
     /// Values in both `roots` and `weaks` are updated if the value they point to are moved,
     /// but only values in `roots` can cause another value to become reachable.
-    fn gc(&mut self, roots: Vec<&mut Ptr>, weaks: Vec<&mut Ptr>);
+    ///
+    /// # Safety
+    ///
+    /// All pointers given in `roots` and `weaks` must be dereferenceable, i.e. properly aligned
+    /// and pointing to initialized memory. Effectively, they must be valid `&mut` references, except
+    /// that they may alias.
+    unsafe fn gc(&mut self, roots: Vec<*mut Ptr>, weaks: Vec<*mut Ptr>);
 }
 
 /// A value in managed memory that may point to other managed values, keeping them reachable.
@@ -118,7 +124,7 @@ impl<T: ?Sized + GcCandidate<Ptr>, Ptr: HeapPtr<T>> ManagedMem<T, Ptr> for NoGcM
         self.heap.for_each(cb);
     }
 
-    fn gc(&mut self, _roots: Vec<&mut Ptr>, _weaks: Vec<&mut Ptr>){
+    unsafe fn gc(&mut self, _roots: Vec<*mut Ptr>, _weaks: Vec<*mut Ptr>){
         // no-op
     }
 }
